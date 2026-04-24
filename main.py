@@ -5,11 +5,12 @@ import os
 
 # --- SOZLAMALAR ---
 API_TOKEN = '8523975201:AAHrN7IRjCFx2j33v2kEQY2Ku1qIaPg9IHY'
-ADMIN_ID = 8625345482
+ADMIN_ID = 8625345482 
 KANAL_USERNAME = "@psjfkspjsl" 
 
 bot = telebot.TeleBot(API_TOKEN)
 
+# Bazani yuklash funksiyasi
 def load_data():
     if os.path.exists('storage.json'):
         with open('storage.json', 'r') as f:
@@ -25,6 +26,7 @@ storage = load_data()
 
 @bot.message_handler(commands=['start'])
 def start(msg):
+    # Tugma orqali kelganda kinoni berish
     args = msg.text.split()
     if len(args) > 1:
         code = args[1]
@@ -33,12 +35,17 @@ def start(msg):
             return
     bot.send_message(msg.chat.id, "👋 Salom! Kino kodini yuboring.")
 
-# ADMIN RASM YUBORSA BOSHLANADI
+# ADMIN RASM YUBORSA (MUAMMO SHU YERDA BO'LISHI MUMKIN EDI, QAYTA TUZATILDI)
 @bot.message_handler(content_types=['photo'])
-def handle_admin_post(msg):
+def handle_admin_photo(msg):
+    # ID ni tekshirish uchun log chiqaradi
+    print(f"Xabar keldi! User ID: {msg.from_user.id}") 
+    
     if msg.from_user.id == ADMIN_ID:
         m = bot.send_message(msg.chat.id, "🎬 **Anime/Kino nomini kiriting:**", parse_mode="Markdown")
         bot.register_next_step_handler(m, get_janr, msg.photo[-1].file_id)
+    else:
+        bot.send_message(msg.chat.id, "Siz admin emassiz! Sizning ID: " + str(msg.from_user.id))
 
 def get_janr(msg, photo_id):
     name = msg.text
@@ -66,7 +73,6 @@ def finish_post(msg, photo_id, name, janr, qismlar, code):
         storage[code] = {'id': video_id}
         save_data(storage)
 
-        # Rasmda ko'rsatilgan chiroyli format:
         full_text = (
             f"＊ ─── ─── ﾟ⛩️ ﾟ─── ─── ┐\n"
             f"📂 **Anime nomi :** {name}\n"
@@ -83,8 +89,11 @@ def finish_post(msg, photo_id, name, janr, qismlar, code):
         btn = types.InlineKeyboardMarkup()
         btn.add(types.InlineKeyboardButton("👁‍🗨 Tomosha qilish", url=f"https://t.me/{bot.get_me().username}?start={code}"))
         
-        bot.send_photo(KANAL_USERNAME, photo_id, caption=full_text, parse_mode="Markdown", reply_markup=btn)
-        bot.send_message(msg.chat.id, "✅ Post kanalga muvaffaqiyatli joylandi!")
+        try:
+            bot.send_photo(KANAL_USERNAME, photo_id, caption=full_text, parse_mode="Markdown", reply_markup=btn)
+            bot.send_message(msg.chat.id, "✅ Post kanalga muvaffaqiyatli joylandi!")
+        except Exception as e:
+            bot.send_message(msg.chat.id, f"❌ Kanalga yuborishda xato: {e}\n(Bot kanalga admin qilinganmi?)")
     else:
         bot.send_message(msg.chat.id, "❌ Video yubormadingiz, jarayon bekor qilindi.")
 
@@ -96,4 +105,7 @@ def send_kino(msg):
     else:
         bot.send_message(msg.chat.id, "❌ Bunday kodli kino topilmadi.")
 
-bot.infinity_polling()
+# Render uchun pollingni to'g'ri ishga tushirish
+if __name__ == "__main__":
+    print("Bot ishga tushdi...")
+    bot.infinity_polling()
