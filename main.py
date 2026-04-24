@@ -2,8 +2,8 @@ import telebot
 from telebot import types
 import threading
 from flask import Flask
+import time
 
-# --- RENDER SERVER ---
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is running!"
@@ -15,109 +15,93 @@ ADMIN_ID = 8625345482
 KANAL_ID = "@psjfkspjsl" 
 
 bot = telebot.TeleBot(API_TOKEN)
-storage = {} 
+storage = {} # Kinolar bazasi
+admin_data = {} # Admin vaqtinchalik ma'lumotlari
 
 def check_sub(user_id):
     try:
         status = bot.get_chat_member(KANAL_ID, user_id).status
         return status in ['member', 'administrator', 'creator']
-    except:
-        return False
-
-def sub_markup():
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Obuna bo'lish", url=f"https://t.me/{KANAL_ID[1:]}"))
-    markup.add(types.InlineKeyboardButton("Tekshirish ✅", callback_data="check"))
-    return markup
+    except: return False
 
 @bot.message_handler(commands=['start'])
 def start(msg):
     user_id = msg.from_user.id
     if not check_sub(user_id):
-        bot.send_message(user_id, f"❌ Botdan foydalanish uchun kanalimizga obuna bo'ling!", reply_markup=sub_markup())
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("Obuna bo'lish", url=f"https://t.me/{KANAL_ID[1:]}"))
+        bot.send_message(user_id, "❌ Botdan foydalanish uchun kanalga a'zo bo'ling!", reply_markup=markup)
         return
 
     args = msg.text.split()
     if len(args) > 1:
         code = args[1]
         if code in storage:
-            bot.send_video(msg.chat.id, storage[code], caption=f"🎬 Kod: {code}\n\n@psjfkspjsl")
+            videos = storage[code]['videos']
+            bot.send_message(user_id, f"🎬 **{storage[code]['name']}** barcha qismlari yuborilmoqda...")
+            
+            # Videolarni albom (media group) shaklida yuborish
+            media = []
+            for v_id in videos:
+                media.append(types.InputMediaVideo(v_id))
+            
+            # Telegram bitta albomda max 10 ta video ruxsat beradi
+            # Agar 10 tadan ko'p bo'lsa, bo'lib yuboradi
+            for i in range(0, len(media), 10):
+                bot.send_media_group(user_id, media[i:i+10])
         else:
-            bot.send_message(msg.chat.id, "❌ Kino topilmadi.")
+            bot.send_message(user_id, "❌ Anime topilmadi.")
     else:
-        bot.send_message(msg.chat.id, "👋 Salom! Kino kodini yuboring.")
+        bot.send_message(user_id, "👋 Salom! Anime kodini yuboring.")
 
-# --- ADMIN QISMI (ZANJIRLI) ---
-
+# --- ADMIN QISMI ---
 @bot.message_handler(content_types=['photo'])
-def handle_admin_photo(msg):
+def admin_photo(msg):
     if msg.from_user.id == ADMIN_ID:
-        m = bot.send_message(msg.chat.id, "🎬 **1. Anime nomini kiriting:**")
+        m = bot.send_message(msg.chat.id, "🎬 **Anime nomi:**")
         bot.register_next_step_handler(m, get_name, msg.photo[-1].file_id)
 
 def get_name(msg, photo_id):
     name = msg.text
-    m = bot.send_message(msg.chat.id, "🎭 **2. Janrini kiriting:**")
-    bot.register_next_step_handler(m, get_janr, photo_id, name)
+    m = bot.send_message(msg.chat.id, "🔢 **Kod kiriting:**")
+    bot.register_next_step_handler(m, get_code, photo_id, name)
 
-def get_janr(msg, photo_id, name):
-    janr = msg.text
-    m = bot.send_message(msg.chat.id, "🎞 **3. Qismlar sonini kiriting:**")
-    bot.register_next_step_handler(m, get_parts, photo_id, name, janr)
-
-def get_parts(msg, photo_id, name, janr):
-    parts = msg.text
-    m = bot.send_message(msg.chat.id, "🔢 **4. Ushbu anime uchun KOD kiriting:**")
-    bot.register_next_step_handler(m, get_code, photo_id, name, janr, parts)
-
-def get_code(msg, photo_id, name, janr, parts):
+def get_code(msg, photo_id, name):
     code = msg.text
-    m = bot.send_message(msg.chat.id, "📹 **5. ENDI VIDEONI YUBORING:**")
-    bot.register_next_step_handler(m, finish_all, photo_id, name, janr, parts, code)
+    admin_data[msg.from_user.id] = {'name': name, 'photo': photo_id, 'code': code, 'videos': []}
+    bot.send_message(msg.chat.id, "📹 Endi barcha videolarni **birdaniga belgilab** yuboring. Yuklanib bo'lgach **/save** deb yozing.")
 
-def finish_all(msg, photo_id, name, janr, parts, code):
-    if msg.content_type == 'video':
-        video_id = msg.video.file_id
-        storage[code] = video_id # Kodni saqlash
+@bot.message_handler(content_types=['video'])
+def collect_vids(msg):
+    uid = msg.from_user.id
+    if uid == ADMIN_ID and uid in admin_data:
+        admin_data[uid]['videos'].append(msg.video.file_id)
+
+@bot.message_handler(commands=['save'])
+def save_anime(msg):
+    uid = msg.from_user.id
+    if uid == ADMIN_ID and uid in admin_data:
+        data = admin_data[uid]
+        storage[data['code']] = {'name': data['name'], 'videos': data['videos']}
         
-        full_text = (
-            f"📂 **Nomi:** {name}\n"
-            f"🗡 **Janri:** {janr}\n"
-            f"🎞 **Qismlar:** {parts}\n"
-            f"🔢 **Kod:** `{code}`"
-        )
-        
+        # Kanalga post
         btn = types.InlineKeyboardMarkup()
-        btn.add(types.InlineKeyboardButton("👁‍🗨 Tomosha qilish", url=f"https://t.me/{bot.get_me().username}?start={code}"))
+        btn.add(types.InlineKeyboardButton("👁‍🗨 Barcha qismlarni ko'rish", url=f"https://t.me/{bot.get_me().username}?start={data['code']}"))
         
-        try:
-            bot.send_photo(KANAL_ID, photo_id, caption=full_text, reply_markup=btn)
-            bot.send_message(msg.chat.id, "✅ Kanalga muvaffaqiyatli joylandi!")
-        except Exception as e:
-            bot.send_message(msg.chat.id, f"❌ Kanalga yuborishda xato: {e}\nBot kanalga adminmi?")
-    else:
-        bot.send_message(msg.chat.id, "❌ Siz video yubormadingiz! Jarayon bekor qilindi.")
+        bot.send_photo(KANAL_ID, data['photo'], caption=f"📂 **Nomi:** {data['name']}\n🎞 **Qismlar:** {len(data['videos'])}\n🔢 **Kod:** `{data['code']}`", reply_markup=btn)
+        bot.send_message(msg.chat.id, "✅ Kanalga joylandi va xotiraga saqlandi!")
+        del admin_data[uid]
 
-# --- KOD QIDIRISH ---
 @bot.message_handler(func=lambda m: True)
-def search_code(msg):
-    if not check_sub(msg.from_user.id):
-        bot.send_message(msg.chat.id, "❌ Kanalga obuna bo'ling!", reply_markup=sub_markup())
-        return
-        
+def search_text(msg):
     code = msg.text
     if code in storage:
-        bot.send_video(msg.chat.id, storage[code], caption=f"🎬 Kod: {code}")
+        # Kod yozilganda ham hammasini yuboradi
+        media = [types.InputMediaVideo(v) for v in storage[code]['videos']]
+        for i in range(0, len(media), 10):
+            bot.send_media_group(msg.chat.id, media[i:i+10])
     else:
-        bot.send_message(msg.chat.id, "❌ Bunday kodli anime topilmadi.")
-
-@bot.callback_query_handler(func=lambda call: call.data == "check")
-def check_callback(call):
-    if check_sub(call.from_user.id):
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        bot.send_message(call.message.chat.id, "✅ Rahmat! Endi kodni yuboring.")
-    else:
-        bot.answer_callback_query(call.id, "❌ Hali obuna bo'lmadingiz!", show_alert=True)
+        bot.send_message(msg.chat.id, "❌ Topilmadi.")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
