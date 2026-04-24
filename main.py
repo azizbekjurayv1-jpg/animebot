@@ -5,7 +5,7 @@ import os
 
 # --- SOZLAMALAR ---
 API_TOKEN = '8523975201:AAHrN7IRjCFx2j33v2kEQY2Ku1qIaPg9IHY'
-ADMIN_ID = 46456266
+ADMIN_ID = 8625345482
 KANAL_USERNAME = "@psjfkspjsl" 
 
 bot = telebot.TeleBot(API_TOKEN)
