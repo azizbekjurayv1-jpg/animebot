@@ -1,10 +1,9 @@
 import os
 import json
-import asyncio
+import requests
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-import yt_dlp
 
 # ⚠️ SOZLAMALAR
 BOT_TOKEN = "8779270757:AAFvfedtmOlXGLsjcbcH89wVlSl4F59XYtg"
@@ -21,8 +20,6 @@ dp = Dispatcher()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
-DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 def load_json(file_path, default_value):
     if not os.path.exists(file_path):
@@ -68,35 +65,43 @@ async def start_cmd(message: types.Message):
     await message.answer(
         f"👋 Salom, {message.from_user.full_name}!\n"
         f"Musiqa va Video yuklovchi botga xush kelibsiz.\n\n"
-        f"Ssilka (Instagram, YouTube, TikTok) yuboring!"
+        f"Qo'shiq nomini yozing yoki ssilka (Instagram, YouTube, TikTok) yuboring!"
     )
 
-# Ssilkani yuklab olish funksiyasi (Klip yoki MP3)
-def download_via_ytdlp(url: str, mode: str, output_path: str):
-    ydl_opts = {
-        'outtmpl': f'{output_path}.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
+# Eng kuchli va barqaror yuklovchi API (All-in-One)
+def fetch_media(url: str):
+    api_url = "https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink"
+    payload = {"url": url}
+    headers = {
+        "x-rapidapi-key": "6882fbd72fmsh4b3e8c9c037ce69p137f81jsn7b41dfd16f7f",
+        "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com",
+        "Content-Type": "application/json"
     }
-    if mode == 'audio':
-        ydl_opts.update({
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        })
-    else:
-        ydl_opts.update({
-            'format': 'best[ext=mp4]/best',
-        })
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+        if response.status == 200:
+            data = response.json()
+            # API turli xil formatda qaytarishi mumkin, asosiylarini ajratib olamiz
+            video_url = None
+            audio_url = None
+            title = "Yuklangan Media"
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        title = info.get('title', 'Media')
-        ext = 'mp3' if mode == 'audio' else info.get('ext', 'mp4')
-        return f"{output_path}.{ext}", title
+            if "medias" in data:
+                for media in data["medias"]:
+                    if media.get("type") == "video" and not video_url:
+                        video_url = media.get("url")
+                    if media.get("type") == "audio" and not audio_url:
+                        audio_url = media.get("url")
+            
+            # Agar alohida audio bo'lmasa, videoning o'zini audio o'rnida ham ishlatsa bo'ladi
+            if video_url and not audio_url:
+                audio_url = video_url
+                
+            title = data.get("title", "Media Fayl")
+            return {"video": video_url, "audio": audio_url, "title": title}
+    except Exception:
+        pass
+    return None
 
 @dp.message()
 async def main_handler(message: types.Message):
@@ -107,65 +112,67 @@ async def main_handler(message: types.Message):
 
     text = message.text or ""
 
-    if "http://" in text.lower() or "https://" in text.lower():
+    # 1. SSILKA KELGANDA
+    if text.startswith("http://") or text.startswith("https://"):
         msg = await message.answer("⏳ Havola tekshirilmoqda, iltimos kuting...")
         
-        # Klip va MP3 uchun tugmalar variantini chiqarish
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📹 Videoni yuklash (Klip)", callback_query_data=f"dl_video_{user_id}")],
-            [InlineKeyboardButton(text="🎵 Musiqasini yuklash (MP3)", callback_query_data=f"dl_audio_{user_id}")]
-        ])
+        res = fetch_media(text.strip())
         
-        # Vaqtinchalik ssilkani saqlab turamiz
-        global temp_url
-        temp_url = text.strip()
-        
-        await msg.edit_text("👇 Nimaligini tanlang (Klip yoki Ovoz formatida):", reply_markup=kb)
+        if res and (res.get("video") or res.get("audio")):
+            kb = InlineKeyboardMarkup(inline_keyboard=[])
+            
+            # Foydalanuvchiga ssilkani ochuvchi tugmalar ko'rinishida taqdim etamiz
+            if res.get("video"):
+                kb.inline_keyboard.append([InlineKeyboardButton(text="📹 Videoni yuklash (Klip)", url=res["video"])])
+            if res.get("audio"):
+                kb.inline_keyboard.append([InlineKeyboardButton(text="🎵 Musiqasini yuklash (MP3)", url=res["audio"])])
+                
+            await message.answer(
+                f"📦 **{res['title']}** tayyor!\n\n"
+                f"Yuklab olish uchun quyidagi tugmalardan birini bosing:", 
+                reply_markup=kb
+            )
+            await msg.delete()
+        else:
+            await msg.edit_text("😔 Kechirasiz, ushbu ssilkadan media topilmadi yoki havola xato. Boshqa ssilka yuborib ko'ring.")
         return
+
+    # 2. ODDIY MATN KELGANDA (NOM BILAN MUSIQA QIDIRISH)
+    msg = await message.answer("🔍 Musiqa qidirilmoqda...")
+    search_url = f"https://api.deezer.com/search?q={text}&limit=1"
+    try:
+        response = requests.get(search_url, timeout=10)
+        if response.status == 200:
+            data = response.json()
+            tracks = data.get("data", [])
+            if tracks:
+                track = tracks[0]
+                await message.answer_audio(
+                    audio=track['preview'],
+                    caption=f"🎵 {track['artist']['name']} - {track['title']}\n\n🤖 @psjfkspjsl"
+                )
+                await msg.delete()
+                return
+    except Exception:
+        pass
+    await msg.edit_text("😔 Kechirasiz, bunday musiqa topilmadi.")
 
 @dp.callback_query()
 async def callback_handler(callback: CallbackQuery):
     user_id = callback.from_user.id
-    
     if callback.data == "check_sub":
         if await check_subscription(user_id):
             try: await callback.message.delete()
             except Exception: pass
-            await callback.message.answer("✅ Obuna tasdiqlandi!")
+            await callback.message.answer("✅ Obuna tasdiqlandi! Endi ssilka yuborishingiz mumkin.")
         else:
             await callback.answer("❌ Hali ham hamma kanallarga a'zo bo'lmadingiz!", show_alert=True)
-            
-    elif callback.data.startswith("dl_"):
-        mode = "video" if "video" in callback.data else "audio"
-        await callback.message.edit_text("🚀 Serverga yuklab olinmoqda, biroz kuting...")
-        
-        output_file = os.path.join(DOWNLOAD_DIR, f"{user_id}_{mode}")
-        
-        try:
-            # Ssilkani to'g'ridan-to'g'ri yuklaymiz
-            loop = asyncio.get_event_loop()
-            file_full_path, title = await loop.run_in_executor(None, download_via_ytdlp, temp_url, mode, output_file)
-            
-            await callback.message.edit_text("📤 Telegramga jo'natilmoqda...")
-            
-            if mode == 'audio':
-                await callback.message.answer_audio(audio=types.FSInputFile(file_full_path), caption=f"🎵 {title}\n\n🤖 @psjfkspjsl")
-            else:
-                await callback.message.answer_video(video=types.FSInputFile(file_full_path), caption=f"📹 {title}\n\n🤖 @psjfkspjsl")
-                
-            await callback.message.delete()
-            
-            # Ishlatilgan faylni serverdan o'chirib tashlaymiz (joy to'lmasligi uchun)
-            if os.path.exists(file_full_path):
-                os.remove(file_full_path)
-                
-        except Exception as e:
-            await callback.message.edit_text("⚠️ Kechirasiz, ushbu ssilkadan media yuklab bo'lmadi yoki fayl hajmi juda katta.")
-        await callback.answer()
+    await callback.answer()
 
 async def main():
-    print("🤖 yt-dlp Bot ishga tushdi...")
+    print("🤖 Professional yuklovchi bot ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
