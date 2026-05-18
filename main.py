@@ -1,4 +1,4 @@
-i  import os
+import os
 import json
 import asyncio
 from aiogram import Bot, Dispatcher, types
