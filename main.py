@@ -2,7 +2,6 @@ import os
 import json
 import time
 import threading
-import requests
 from flask import Flask
 import telebot
 
@@ -219,49 +218,25 @@ def monitor_group_messages(message):
             return
 
 # ==========================================
-# RENDER UCHUN FLASK WEB SERVER VA ANTI-SLEEP PING
+# RENDER UCHUN FLASK WEB SERVER (XAVFSIZ)
 # ==========================================
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is running 24/7!"
+    return "Bot is active!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 3000))
-    app.run(host='0.0.0.0', port=port)
-
-# Botingiz Renderda uxlab qolmasligi uchun doimiy uyg'otib turuvchi funksiya
-def self_ping():
-    time.sleep(10)
-    url = "https://animebot-12.onrender.com"  # 🔗 SIZNING RENDERINGIZ LINKI
-    while True:
-        try:
-            requests.get(url, timeout=10)
-            print("Self-ping muvaffaqiyatli: Bot uyg'oq holatda saqlandi.")
-        except:
-            print("Self-pingda vaqtinchalik uzilish.")
-        time.sleep(120)  # Har 2 daqiqada bir marta saytni uyg'otadi
-
-def run_bot():
-    print("Telegram bot polling boshlandi...")
-    while True:
-        try:
-            bot.polling(none_stop=True, interval=0, timeout=40)
-        except Exception as e:
-            print(f"Polling xatosi: {e}")
-            time.sleep(5)
+    # Render xatolik bermasligi uchun serverni tinch holatda yurgizamiz
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
-    # Veb serverni yoqish
+    # 1. Avval Flask veb-serverini alohida xavfsiz fonda yoqamiz
     t_flask = threading.Thread(target=run_flask)
     t_flask.daemon = True
     t_flask.start()
     
-    # Uyg'otib turuvchi ping tizimini fonda yoqish
-    t_ping = threading.Thread(target=self_ping)
-    t_ping.daemon = True
-    t_ping.start()
-    
-    # Botni ishga tushirish
-    run_bot()
+    # 2. Keyin Telegram botni asosiy oqimda to'g'ridan-to'g'ri ishga tushiramiz
+    print("Bot muvaffaqiyatli yoqildi...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
