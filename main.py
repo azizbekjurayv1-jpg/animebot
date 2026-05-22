@@ -6,7 +6,7 @@ from flask import Flask
 import telebot
 
 # 🛑 TOKENINGIZ KOD ICHIGA JOYLASHTIRILDI
-BOT_TOKEN = "8779270757:AAF_L1Z4rTTWskj0Yt0VPxpsHUnU7jSznPM"
+BOT_TOKEN = "8779270757:AAHd8EHjlXLi0cNWYpkKWQwmDhj18AUfP_4"
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
 DB_PATH = "baza.json"
