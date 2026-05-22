@@ -2,6 +2,7 @@ import os
 import json
 import time
 import threading
+import requests
 from flask import Flask
 import telebot
 
@@ -47,7 +48,7 @@ def is_admin(chat_id, user_id):
 # Start komandasi
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "👋 Salom! Men guruh boshqaruvchi va media-filtr botman. Meni guruhga qo'shib, admin huquqini bering!")
+    bot.reply_to(message, "👋 Salom! Men guruh boshqaruvchi botman. Meni guruhga qo'shib, admin huquqini bering!")
 
 # ==========================================
 # 1. GURUHGA ODAM QO'SHISH VA TARIFLAR
@@ -147,7 +148,7 @@ def tag_all_members(message):
     db = read_db()
     
     if not db["active_members"]:
-        bot.reply_to(message, "⚠️ Guruhda hali faol a'zolar yo'q. Bir ozdan so'ng qayta urining.")
+        bot.reply_to(message, "⚠️ Guruhda hali faol a'zolar ro'yxatga olinmadi.")
         return
         
     msg_text = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Diqqat e'lon!"
@@ -174,12 +175,10 @@ def monitor_group_messages(message):
     user_id_str = str(user_id)
     db = read_db()
     
-    # Faol a'zolarni ro'yxatga olish
     if not message.from_user.is_bot and user_id not in db["active_members"]:
         db["active_members"].append(user_id)
         write_db(db)
         
-    # 1. Media filtrlarni tekshirish
     if message.text:
         text_lower = message.text.lower()
         if text_lower in db["media_filters"]:
@@ -193,7 +192,6 @@ def monitor_group_messages(message):
             elif f["type"] == "sticker": bot.send_sticker(message.chat.id, f["file_id"])
             return
 
-    # 2. Ruxsatnomani tekshirish
     if not is_admin(message.chat.id, user_id):
         user_data = db["users"].get(user_id_str)
         now = int(time.time())
@@ -210,7 +208,7 @@ def monitor_group_messages(message):
             count = user_data["added_count"] if user_data else 0
             warn = bot.send_message(
                 message.chat.id, 
-                f"⚠️ @{message.from_user.username or message.from_user.first_name} xabar yozish uchun odam qo'shishingiz kerak!\n\n"
+                f"⚠️ @{message.from_user.username or message.from_user.first_name} xabar yozish uchun belgilangan odamlarni guruhga qo'shishingiz kerak!\n\n"
                 f"Siz qo'shgan odamlar: {count}\n"
                 f"1 ta odam = 1 kun ruxsat\n"
                 f"2 ta odam = 2 kun ruxsat\n"
@@ -221,17 +219,29 @@ def monitor_group_messages(message):
             return
 
 # ==========================================
-# RENDER UCHUN FLASK WEB SERVER
+# RENDER UCHUN FLASK WEB SERVER VA ANTI-SLEEP PING
 # ==========================================
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is running 24/7 natively on Render!"
+    return "Bot is running 24/7!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 3000))
     app.run(host='0.0.0.0', port=port)
+
+# Botingiz Renderda uxlab qolmasligi uchun doimiy uyg'otib turuvchi funksiya
+def self_ping():
+    time.sleep(10)
+    url = "https://animebot-12.onrender.com"  # 🔗 SIZNING RENDERINGIZ LINKI
+    while True:
+        try:
+            requests.get(url, timeout=10)
+            print("Self-ping muvaffaqiyatli: Bot uyg'oq holatda saqlandi.")
+        except:
+            print("Self-pingda vaqtinchalik uzilish.")
+        time.sleep(120)  # Har 2 daqiqada bir marta saytni uyg'otadi
 
 def run_bot():
     print("Telegram bot polling boshlandi...")
@@ -243,11 +253,15 @@ def run_bot():
             time.sleep(5)
 
 if __name__ == '__main__':
-    # Flaskni alohida potokda ishga tushirish
+    # Veb serverni yoqish
     t_flask = threading.Thread(target=run_flask)
     t_flask.daemon = True
     t_flask.start()
     
-    # Botni asosiy potokda xavfsiz yurgizish
+    # Uyg'otib turuvchi ping tizimini fonda yoqish
+    t_ping = threading.Thread(target=self_ping)
+    t_ping.daemon = True
+    t_ping.start()
+    
+    # Botni ishga tushirish
     run_bot()
-    # Web serverni
