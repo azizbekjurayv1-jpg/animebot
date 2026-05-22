@@ -5,24 +5,26 @@ import threading
 from flask import Flask
 import telebot
 
-# 🛑 TOKENINGIZ KOD ICHIGA JOYLASHTIRILDI
-BOT_TOKEN = "8779270757:AAHd8EHjlXLi0cNWYpkKWQwmDhj18AUfP_4"
+# 🛑 SIZNING TOKENINGIZ
+BOT_TOKEN = "8779270757:AAF_L1Z4rTTWskj0Yt0VPxpsHUnU7jSznPM"
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
 DB_PATH = "baza.json"
-active_members = set()  # TagAll uchun vaqtinchalik faol a'zolar ro'yxati
 
 # JSON bazani o'qish
 def read_db():
     if not os.path.exists(DB_PATH):
         with open(DB_PATH, 'w', encoding='utf-8') as f:
-            json.dump({"target_usernames": [], "users": {}, "media_filters": {}}, f, ensure_ascii=False, indent=2)
+            json.dump({"target_usernames": [], "users": {}, "media_filters": {}, "active_members": []}, f, ensure_ascii=False, indent=2)
     try:
         with open(DB_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            db = json.load(f)
+            if "active_members" not in db:
+                db["active_members"] = []
+            return db
     except Exception as e:
         print(f"Bazani o'qishda xatolik: {e}")
-        return {"target_usernames": [], "users": {}, "media_filters": {}}
+        return {"target_usernames": [], "users": {}, "media_filters": {}, "active_members": []}
 
 # JSON bazaga yozish
 def write_db(data):
@@ -34,13 +36,18 @@ def write_db(data):
 
 # Adminlikni tekshirish
 def is_admin(chat_id, user_id):
-    if chat_id == user_id:  # Shaxsiy chat bo'lsa
+    if chat_id == user_id:
         return True
     try:
         member = bot.get_chat_member(chat_id, user_id)
         return member.status in ['creator', 'administrator']
     except:
         return False
+
+# Start komandasi
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "👋 Salom! Men guruh boshqaruvchi va media-filtr botman. Meni guruhga qo'shib, admin huquqini bering!")
 
 # ==========================================
 # 1. GURUHGA ODAM QO'SHISH VA TARIFLAR
@@ -56,27 +63,24 @@ def handle_new_members(message):
     for member in message.new_chat_members:
         if member.username:
             formatted_username = f"@{member.username}"
-            # Agar qo'shilgan odam admin bergan bazada bo'lsa
             if formatted_username in db["target_usernames"]:
-                db["target_usernames"].remove(formatted_username) # Bazadan o'chirish (bitta odam faqat bir marta ishlasin)
+                db["target_usernames"].remove(formatted_username)
                 db["users"][adder_id]["added_count"] += 1
                 
                 now = int(time.time())
                 current_expire = db["users"][adder_id]["expires_at"]
                 start_time = current_expire if current_expire > now else now
                 
-                # Kunlik tariflarni hisoblash
                 count = db["users"][adder_id]["added_count"]
                 if count == 1:
-                    db["users"][adder_id]["expires_at"] = start_time + (24 * 60 * 60) # +1 kun
+                    db["users"][adder_id]["expires_at"] = start_time + (24 * 60 * 60)
                 elif count == 2:
-                    db["users"][adder_id]["expires_at"] = start_time + (2 * 24 * 60 * 60) # +2 kun
+                    db["users"][adder_id]["expires_at"] = start_time + (2 * 24 * 60 * 60)
                 elif count >= 5:
-                    db["users"][adder_id]["is_unlimited"] = True # Cheksiz
+                    db["users"][adder_id]["is_unlimited"] = True
                     
     write_db(db)
 
-# Admin buyrug'i: Target foydalanuvchi nomini qo'shish
 @bot.message_handler(commands=['addtarget'])
 def add_target_username(message):
     if not is_admin(message.chat.id, message.from_user.id): return
@@ -88,7 +92,7 @@ def add_target_username(message):
             write_db(db)
             bot.reply_to(message, f"✅ {args[1]} ro'yxatga qo'shildi.")
     else:
-        bot.reply_to(message, "⚠️ Ishlatish: `/addtarget @username`")
+        bot.reply_to(message, "⚠️ Format: `/addtarget @username`")
 
 # ==========================================
 # 2. MISS ROSE USLUBIDAGI MEDIA FILTER
@@ -108,18 +112,12 @@ def save_media_filter(message):
     
     filter_data = {"type": "text", "file_id": None, "caption": reply.text or reply.caption or ""}
     
-    if reply.video:
-        filter_data.update({"type": "video", "file_id": reply.video.file_id})
-    elif reply.photo:
-        filter_data.update({"type": "photo", "file_id": reply.photo[-1].file_id})
-    elif reply.voice:
-        filter_data.update({"type": "voice", "file_id": reply.voice.file_id})
-    elif reply.audio:
-        filter_data.update({"type": "audio", "file_id": reply.audio.file_id})
-    elif reply.document:
-        filter_data.update({"type": "document", "file_id": reply.document.file_id})
-    elif reply.sticker:
-        filter_data.update({"type": "sticker", "file_id": reply.sticker.file_id})
+    if reply.video: filter_data.update({"type": "video", "file_id": reply.video.file_id})
+    elif reply.photo: filter_data.update({"type": "photo", "file_id": reply.photo[-1].file_id})
+    elif reply.voice: filter_data.update({"type": "voice", "file_id": reply.voice.file_id})
+    elif reply.audio: filter_data.update({"type": "audio", "file_id": reply.audio.file_id})
+    elif reply.document: filter_data.update({"type": "document", "file_id": reply.document.file_id})
+    elif reply.sticker: filter_data.update({"type": "sticker", "file_id": reply.sticker.file_id})
         
     db["media_filters"][keyword] = filter_data
     write_db(db)
@@ -129,8 +127,7 @@ def save_media_filter(message):
 def stop_media_filter(message):
     if not is_admin(message.chat.id, message.from_user.id): return
     args = message.text.split()
-    if len(args) < 2:
-        return bot.reply_to(message, "⚠️ Ishlatish: `/stop kalit_soz`")
+    if len(args) < 2: return bot.reply_to(message, "⚠️ Ishlatish: `/stop kalit_soz`")
         
     keyword = args[1].lower()
     db = read_db()
@@ -147,15 +144,16 @@ def stop_media_filter(message):
 @bot.message_handler(commands=['tagall'])
 def tag_all_members(message):
     if not is_admin(message.chat.id, message.from_user.id): return
-    if not active_members:
-        bot.reply_to(message, "Hozircha faol a'zolar aniqlanmadi.")
+    db = read_db()
+    
+    if not db["active_members"]:
+        bot.reply_to(message, "⚠️ Guruhda hali faol a'zolar yo'q. Bir ozdan so'ng qayta urining.")
         return
         
     msg_text = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Diqqat e'lon!"
     bot.send_message(message.chat.id, "📢 Guruh a'zolarini chaqirish boshlandi...")
     
-    members_list = list(active_members)
-    # 5 tadan bo'lib chaqirish (Telegram flood-chekloviga tushmaslik uchun)
+    members_list = db["active_members"]
     for i in range(0, len(members_list), 5):
         chunk = members_list[i:i+5]
         mention_text = f"{msg_text}\n\n"
@@ -165,7 +163,7 @@ def tag_all_members(message):
         time.sleep(0.5)
 
 # ==========================================
-# GURUH FILTR TRIGGERS VA RUXSATLAR NAZORATI
+# GURUH FILTR TRIGGERS VA NAZORAT
 # ==========================================
 @bot.message_handler(func=lambda msg: True, content_types=['text', 'photo', 'video', 'voice', 'audio', 'document', 'sticker'])
 def monitor_group_messages(message):
@@ -174,15 +172,16 @@ def monitor_group_messages(message):
         
     user_id = message.from_user.id
     user_id_str = str(user_id)
+    db = read_db()
     
-    # Faol a'zolar ro'yxatiga qo'shish (TagAll ishlashi uchun)
-    if not message.from_user.is_bot:
-        active_members.add(user_id)
+    # Faol a'zolarni ro'yxatga olish
+    if not message.from_user.is_bot and user_id not in db["active_members"]:
+        db["active_members"].append(user_id)
+        write_db(db)
         
-    # 1. Media filtrlarni tekshirish (Agar matn kalit so'zga mos kelsa)
+    # 1. Media filtrlarni tekshirish
     if message.text:
         text_lower = message.text.lower()
-        db = read_db()
         if text_lower in db["media_filters"]:
             f = db["media_filters"][text_lower]
             if f["type"] == "text": bot.reply_to(message, f["caption"])
@@ -194,9 +193,8 @@ def monitor_group_messages(message):
             elif f["type"] == "sticker": bot.send_sticker(message.chat.id, f["file_id"])
             return
 
-    # 2. Odam qo'shish ruxsatnomasini tekshirish (Adminlarga cheklov qo'yilmaydi)
+    # 2. Ruxsatnomani tekshirish
     if not is_admin(message.chat.id, user_id):
-        db = read_db()
         user_data = db["users"].get(user_id_str)
         now = int(time.time())
         
@@ -206,32 +204,24 @@ def monitor_group_messages(message):
                 has_access = True
                 
         if not has_access:
-            # Ruxsatsiz xabarni darhol guruhdan o'chirish
             try: bot.delete_message(message.chat.id, message.message_id)
             except: pass
             
             count = user_data["added_count"] if user_data else 0
             warn = bot.send_message(
                 message.chat.id, 
-                f"⚠️ @{message.from_user.username or message.from_user.first_name} guruhga xabar yozish uchun admin belgilangan odamlarni qo'shishingiz kerak!\n\n"
-                f"Siz qo'shgan odamlar soni: {count}\n"
-                f"1 ta odam = 1 kun yozish ruxsati\n"
-                f"2 ta odam = 2 kun yozish ruxsati\n"
-                f"5 ta odam = Umrbod cheksiz yozish\n"
+                f"⚠️ @{message.from_user.username or message.from_user.first_name} xabar yozish uchun odam qo'shishingiz kerak!\n\n"
+                f"Siz qo'shgan odamlar: {count}\n"
+                f"1 ta odam = 1 kun ruxsat\n"
+                f"2 ta odam = 2 kun ruxsat\n"
+                f"5 ta odam = Cheksiz yozish\n"
                 f"10+ odam = Adminlik taklifi! 👑"
             )
-            # 8 soniyadan keyin ogohlantirishni o'chirib yuborish
             threading.Thread(target=lambda: (time.sleep(8), bot.delete_message(message.chat.id, warn.message_id))).start()
             return
-            
-        # 10+ odam qo'shganda adminlik taklifi (Faqat 1 marta chiqadi)
-        if user_data and user_data["added_count"] == 10:
-            bot.send_message(message.chat.id, f"🎉 Rahmat @{message.from_user.username or message.from_user.first_name}! Siz 10 tadan ko'p odam qo'shdingiz. Admin sifatida xabar yozishni xohlaysizmi? Biz bilan bog'laning.")
-            user_data["added_count"] = 11  # Qayta chiqmasligi uchun statusni o'zgartirish
-            write_db(db)
 
 # ==========================================
-# RENDER UCHUN FLASK WEB SERVER (24/7 MAJBURIY)
+# RENDER UCHUN FLASK WEB SERVER
 # ==========================================
 app = Flask('')
 
@@ -243,10 +233,21 @@ def run_flask():
     port = int(os.environ.get("PORT", 3000))
     app.run(host='0.0.0.0', port=port)
 
-if __name__ == '__main__':
-    # Web serverni orqa fonda yoqish (Render o'chib qolmasligi uchun)
-    t = threading.Thread(target=run_flask)
-    t.start()
-    print("Bot ishga tushdi...")
-    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+def run_bot():
+    print("Telegram bot polling boshlandi...")
+    while True:
+        try:
+            bot.polling(none_stop=True, interval=0, timeout=40)
+        except Exception as e:
+            print(f"Polling xatosi: {e}")
+            time.sleep(5)
 
+if __name__ == '__main__':
+    # Flaskni alohida potokda ishga tushirish
+    t_flask = threading.Thread(target=run_flask)
+    t_flask.daemon = True
+    t_flask.start()
+    
+    # Botni asosiy potokda xavfsiz yurgizish
+    run_bot()
+    # Web serverni
