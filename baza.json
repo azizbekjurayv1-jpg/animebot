@@ -1,10 +1,5 @@
 {
-  "musiqalar": [
-    {
-      "kod": "001",
-      "nomi": "sherali jo'rayev karvon",
-      "file_id": "CgACAgIAAxkBAAM3Z..." 
-    }
-  ]
+  "target_usernames": [],
+  "users": {},
+  "media_filters": {}
 }
-
