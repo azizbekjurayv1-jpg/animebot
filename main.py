@@ -38,26 +38,22 @@ def save_db():
 
 DB = load_db()
 
+# 📝 SIZ AYTGANDYEK TOZALANGAN VA QISQA MATN
 def get_admin_instruction_text():
     user_list = "\n".join([f"👤 {u}" for u in TARGET_USERNAMES])
     return (
-        "⚡️ **AVTOMATIK ADMIN OLISH TIZIMI!** ⚡️\n\n"
-        "Do'stim, guruhimizda haqiqiy **ADMIN** bo'lishni xohlaysizmi? Buning yo'li juda oson! 👇\n\n"
+        "⚡️ **AVTOMATIK ADMIN OLISH TIZIMI!** \n\n"
         "📌 **NIMA QILISH KERAK?**\n"
         "Pastdagi ro'yxatda turgan foydalanuvchi nomlarini nusxalab oling va ularni guruhga qo'shing.\n\n"
         "🎯 **SHART:** Ro'yxatdagilardan kamida **10 ta odam** qo'shishingiz kerak!\n\n"
         "📜 **QO'SHISHINGIZ KERAK BO'LGAN ODAMLAR:**\n"
         f"{user_list}\n\n"
-        "🚀 **Sizga beriladigan ADMINlik huquqlari:**\n"
-        "1️⃣ Xabarlarni o'chirish (`/del`)\n"
-        "2️⃣ Qoidabuzarlarni bloklash (`/ban`, `/mute`)\n"
-        "3️⃣ Yangi odamlarni taklif qilish va xabarlarni qadash\n\n"
         "✨ **Eslatma:** Aynan 10 ta odam to'lishi bilan bot sizga avtomat adminlik beradi!"
     )
 
 @bot.message_handler(commands=['start'])
 def send_start(message):
-    bot.reply_to(message, "🚀 Bot faol va JSON bazasiga ulandi! Guruhda bemalol /call yoki /callone ishlating!")
+    bot.reply_to(message, "🚀 Bot faol! Guruhda bemalol /call yoki /callone ishlating!")
 
 @bot.message_handler(commands=['odam'])
 def show_odam(message):
@@ -136,6 +132,7 @@ def handle_new_members(message):
     adder_id = message.from_user.id
     adder_str = str(adder_id)
 
+    # Yangi kirgan odamni bazaga qo'shish va unga salom berish
     for member in message.new_chat_members:
         if not member.is_bot:
             DB["all_members"].add(member.id)
@@ -143,25 +140,23 @@ def handle_new_members(message):
             bot.send_message(message.chat.id, f"👋 Salom! Guruhimizga xush kelibsiz!\n\n{get_admin_instruction_text()}")
             break
 
-    try:
-        chat_member = bot.get_chat_member(message.chat.id, adder_id)
-        if chat_member.status in ['creator', 'administrator']: return
-    except: pass
-
+    # 🛠 QAT'IY TO'G'RILASH: Odam qo'shgan odam kimligini xatosiz tekshirish
     for member in message.new_chat_members:
         if member.is_bot: continue
         if member.username:
             user_tag = f"@{member.username}"
             
+            # Agar qo'shilgan odam aynan TARGET_USERNAMES ichida bo'lsa
             if user_tag in TARGET_USERNAMES:
-                if adder_str not in DB["user_adds"]: DB["user_adds"][adder_str] = 0
+                if adder_str not in DB["user_adds"]: 
+                    DB["user_adds"][adder_str] = 0
+                
                 DB["user_adds"][adder_str] += 1
                 current_count = DB["user_adds"][adder_str]
-                save_db()
+                save_db() # Hisobni darhol JSONga muhrlaymiz
                 
                 if current_count >= 10:
                     try:
-                        # 🛠 XORALIK TUZATILDI: Ortiqcha cheklovlar olib tashlandi, faqat kerakli huquqlar beriladi!
                         bot.promote_chat_member(
                             chat_id=message.chat.id, 
                             user_id=adder_id,
@@ -171,7 +166,7 @@ def handle_new_members(message):
                             can_pin_messages=True
                         )
                         mention = f"[{message.from_user.first_name}](tg://user?id={adder_id})"
-                        bot.send_message(message.chat.id, f"🎉 **URAA! {mention}!**\nSiz ro'yxatdan jami **10 ta odam** qo'shdingiz va shartni bajardingiz!\n\n🛡 Siz endi guruhimizda **3 ta asosiy huquqqa ega rasmiy ADMIN**siz!")
+                        bot.send_message(message.chat.id, f"🎉 **URAA! {mention}!**\nSiz ro'yxatdan jami **10 ta odam** qo'shdingiz va shartni bajardingiz! Siz endi ADMINsiz!")
                         DB["user_adds"][adder_str] = 0
                         save_db()
                     except Exception as e:
@@ -183,5 +178,5 @@ def handle_new_members(message):
 if __name__ == '__main__':
     bot.remove_webhook()
     time.sleep(1)
-    print("Yangi qo'shilganlar yozish muammosi tuzatilgan bot yoqildi...")
+    print("Tozalangan va ball tizimi tuzatilgan bot yoqildi...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10)
