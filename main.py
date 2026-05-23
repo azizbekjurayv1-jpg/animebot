@@ -6,7 +6,7 @@ import telebot
 BOT_TOKEN = "8779270757:AAF_L1Z4rTTWskj0Yt0VPxpsHUnU7jSznPM"
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
-# Xavfsiz xotira (faylsiz, operativ xotirada tezkor ishlaydi)
+# Xavfsiz xotira (Railway uchun eng zo'r yengil variant)
 DB = {
     "target_usernames": [],
     "users": {},
@@ -14,7 +14,6 @@ DB = {
     "active_members": []
 }
 
-# Adminlikni tekshirish
 def is_admin(chat_id, user_id):
     if chat_id == user_id: return True
     try:
@@ -22,14 +21,10 @@ def is_admin(chat_id, user_id):
         return member.status in ['creator', 'administrator']
     except: return False
 
-# Start komandasi
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "👋 Salom! Railway'da bot muvaffaqiyatli ishga tushdi. Meni guruhga qo'shib admin qiling!")
+    bot.reply_to(message, "👋 Salom! Railway'da bot daxshatli tezlikda ishlamoqda. Guruhga qo'shing!")
 
-# ==========================================
-# GURUHGA ODAM QO'SHISH VA TARIFLAR
-# ==========================================
 @bot.message_handler(content_types=['new_chat_members'])
 def handle_new_members(message):
     adder_id = str(message.from_user.id)
@@ -66,9 +61,6 @@ def add_target_username(message):
     else:
         bot.reply_to(message, "⚠️ Format: `/addtarget @username`")
 
-# ==========================================
-# MISS ROSE MEDIA FILTER
-# ==========================================
 @bot.message_handler(commands=['filter'])
 def save_media_filter(message):
     if not is_admin(message.chat.id, message.from_user.id): return
@@ -76,7 +68,7 @@ def save_media_filter(message):
     args = message.text.split()
     
     if not reply or len(args) < 2:
-        bot.reply_to(message, "⚠️ Biror xabarga reply qilib, `/filter kalit_soz` deb yozing.")
+        bot.reply_to(message, "⚠️ Reply qilib, `/filter kalit` deb yozing.")
         return
         
     keyword = args[1].lower()
@@ -90,21 +82,15 @@ def save_media_filter(message):
     elif reply.sticker: filter_data.update({"type": "sticker", "file_id": reply.sticker.file_id})
         
     DB["media_filters"][keyword] = filter_data
-    bot.reply_to(message, f"✅ \"{keyword}\" kalit so'zi uchun media filtr saqlandi!")
+    bot.reply_to(message, f"✅ \"{keyword}\" filtri saqlandi!")
 
-# ==========================================
-# TAGALL VA MONITORING
-# ==========================================
 @bot.message_handler(commands=['tagall'])
 def tag_all_members(message):
     if not is_admin(message.chat.id, message.from_user.id): return
     if not DB["active_members"]:
-        bot.reply_to(message, "⚠️ Guruhda hali faol a'zolar ro'yxatga olinmadi.")
+        bot.reply_to(message, "⚠️ Guruhda faol a'zolar yo'q.")
         return
-        
-    msg_text = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Diqqat e'lon!"
-    bot.send_message(message.chat.id, "📢 Guruh a'zolarini chaqirish boshlandi...")
-    
+    msg_text = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "Diqqat!"
     for i in range(0, len(DB["active_members"]), 5):
         chunk = DB["active_members"][i:i+5]
         mention_text = f"{msg_text}\n\n"
@@ -139,9 +125,10 @@ def monitor_group_messages(message):
             try: bot.delete_message(message.chat.id, message.message_id)
             except: pass
             count = user_data["added_count"] if user_data else 0
-            bot.send_message(message.chat.id, f"⚠️ Xabar yozish uchun guruhga odam qo'shing! Siz qo'shgan odamlar: {count}")
+            bot.send_message(message.chat.id, f"⚠️ Guruhga odam qo'shing! Siz qo'shgan odamlar: {count}")
 
 if __name__ == '__main__':
     bot.remove_webhook()
-    print("Bot Railway uchun tayyor va polling boshlandi...")
-    bot.infinity_polling()
+    time.sleep(1)
+    print("Railway Polling boshlandi...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
