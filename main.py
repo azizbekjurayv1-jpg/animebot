@@ -8,7 +8,7 @@ from yt_dlp import YoutubeDL
 from shazamio import Shazam
 
 # Botingiz tokeni
-BOT_TOKEN = "8300065405:AAE6MOr5EhoPmGujdvx11yPPNZ2lHR0gdRk"
+BOT_TOKEN = "8300065405:AAHYQg291ZdtJADxTRFdniqhq-altqjVqtQ"
 
 try:
     bot = telebot.TeleBot(BOT_TOKEN)
