@@ -1,200 +1,223 @@
 import os
-import json
+import re
+import random
+import asyncio
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from yt_dlp import YoutubeDL
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
-from flask import Flask
-from threading import Thread
+from shazamio import Shazam
 
-# 1. RENDER VEB-SERVER QISMI
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot tirik!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# Veb-serverni orqa fonda yurgizish
-Thread(target=run_flask).start()
-
-# 2. TELEGRAM BOT QISMI
-BOT_TOKEN = "8300065405:AAFzGAtlEIKGviHuLKc9teihXm4KduOwzQY"
-
-session = requests.Session()
-retry = Retry(connect=5, read=5, status_forcelist=[500, 502, 503, 504], backoff_factor=1)
-adapter = HTTPAdapter(max_retries=retry)
-session.mount('https://', adapter)
-session.mount('http://', adapter)
-
-telebot.apihelper.CUSTOM_REQUEST_SENDER = lambda method, url, **kwargs: session.request(method, url, **kwargs)
-telebot.apihelper.CONNECT_TIMEOUT = 90
-telebot.apihelper.READ_TIMEOUT = 90
+# Botingiz tokeni
+BOT_TOKEN = "8300065405:AAE6MOr5EhoPmGujdvx11yPPNZ2lHR0gdRk"
 
 try:
     bot = telebot.TeleBot(BOT_TOKEN)
+    bot_info = bot.get_me()
+    print(f"🔥 Stabil bot ishga tushdi: @{bot_info.username}")
 except Exception as e:
-    print(f"Token xatosi: {e}")
+    print(f"❌ Xatolik: {e}")
 
 os.makedirs("downloads", exist_ok=True)
-DB_FILE = "users.json"
+URL_REGEXP = r'(https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*))'
 
-def load_db():
-    if not os.path.exists(DB_FILE): return {"users": {}}
+async def recognize_audio(file_path):
+    shazam = Shazam()
     try:
-        with open(DB_FILE, "r", encoding="utf-8") as f: return json.load(f)
-    except: return {"users": {}}
+        out = await shazam.recognize_song(file_path)
+        if out and 'track' in out:
+            title = out['track'].get('title')
+            subtitle = out['track'].get('subtitle')
+            return f"{subtitle} {title}"
+    except:
+        pass
+    return None
 
-def save_db(db):
+def download_and_send_music(chat_id, user_id, query, reply_to_id):
+    unique_id = f"{user_id}_{random.randint(100, 999)}"
+    full_audio_path = f"downloads/track_{chat_id}_{unique_id}.mp3"
+    
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'default_search': 'ytsearch1',
+        'outtmpl': f"downloads/track_{chat_id}_{unique_id}.%(ext)s",
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+        'quiet': True,
+        'nocheckcertificate': True
+    }
+    
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(db, f, indent=4, ensure_ascii=False)
-    except: pass
-
-def register_user(message):
-    try:
-        db = load_db()
-        chat_id = str(message.chat.id)
-        username = message.from_user.username or "Yashirin"
-        first_name = message.from_user.first_name or "User"
-        if chat_id not in db["users"]:
-            db["users"][chat_id] = {"username": username, "name": first_name, "downloads_count": 0}
-            save_db(db)
-    except: pass
-
-def increment_download(chat_id):
-    try:
-        db = load_db()
-        cid = str(chat_id)
-        if cid in db["users"]:
-            db["users"][cid]["downloads_count"] += 1
-            save_db(db)
-    except: pass
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(query, download=True)
+            if 'entries' in info and len(info['entries']) > 0:
+                title = info['entries'][0].get('title', 'Musiqa')
+            else:
+                title = info.get('title', 'Musiqa')
+                
+        if os.path.exists(full_audio_path):
+            with open(full_audio_path, 'rb') as f:
+                bot.send_audio(chat_id, f, reply_to_message_id=reply_to_id, caption=f"🎵 {title}\n\n🤖 To'liq versiyasi!")
+            os.remove(full_audio_path)
+            return True
+    except Exception as e:
+        print(f"Yuklashda xato: {e}")
+    
+    if os.path.exists(full_audio_path):
+        os.remove(full_audio_path)
+    return False
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    register_user(message)
     try:
-        bot.reply_to(message, "🎶 **Salom! Men tezyurar musiqa va video yuklovchiman!**\n\n"
-                              "👉 Menga YouTube/Instagram linki tashlang yoki shunchaki **qo'shiq nomini** yozib yuboring, darrov topib beraman!")
+        bot.reply_to(message, "🎤 Salom! Men hamma joyga moslashgan musiqiy botman!\n\n"
+                              "💬 **Lichkada:** Shunchaki qo'shiq nomini yozing.\n"
+                              "👥 **Guruhda:** Qo'shiq qidirish uchun `/music qo'shiq_nomi` deb yozing.\n"
+                              "🔗 **Link yuborilsa:** Ham videoni, ham MP3 versiyasini birga beraman!")
     except: pass
 
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    register_user(message)
+@bot.message_handler(func=lambda message: message.text is not None)
+def handle_text_messages(message):
     text = message.text.strip()
     chat_id = message.chat.id
+    user_id = message.from_user.id
+    chat_type = message.chat.type
     
-    if text.startswith("http://") or text.startswith("https://"):
+    if re.search(URL_REGEXP, text):
+        try: msg = bot.reply_to(message, "📥 Havola qabul qilindi, video yuklanmoqda...")
+        except: return
+        
+        unique_id = f"{user_id}_{random.randint(100, 999)}"
+        video_path = f"downloads/video_{chat_id}_{unique_id}.mp4"
+        ydl_opts_video = {
+            'format': 'best',
+            'outtmpl': video_path,
+            'quiet': True,
+            'nocheckcertificate': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
+        }
+        
+        video_success = False
         try:
-            markup = InlineKeyboardMarkup()
-            markup.row(
-                InlineKeyboardButton(text="🎵 MP3 (Musiqasi)", callback_data=f"mp3_{text}"), 
-                InlineKeyboardButton(text="🎬 MP4 (Videosi)", callback_data=f"mp4_{text}")
-            )
-            bot.reply_to(message, "📥 Havola aniqlandi. Sizga nima kerak? Formatni tanlang:", reply_markup=markup)
+            with YoutubeDL(ydl_opts_video) as ydl:
+                ydl.download([text])
+            
+            if os.path.exists(video_path):
+                with open(video_path, 'rb') as v:
+                    bot.send_video(chat_id, v, reply_to_message_id=message.message_id, caption="📹 Yuklab olindi.")
+                video_success = True
+                try: bot.edit_message_text("🎬 Video yuborildi! Endi ichidagi ohang aniqlanmoqda...", chat_id, msg.message_id)
+                except: pass
         except:
             pass
             
-    elif not text.startswith("/"):
-        try: 
-            msg = bot.reply_to(message, f"🔍 `{text}` — YouTube'dan qidirilmoqda...")
-        except: 
-            return
-        
-        ydl_opts = {
+        temp_audio = f"downloads/shazam_{chat_id}_{unique_id}.mp3"
+        ydl_opts_audio = {
             'format': 'bestaudio/best',
-            'default_search': 'ytsearch1',
-            'outtmpl': f"downloads/%(title)s_{chat_id}.%(ext)s",
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            'quiet': True
+            'outtmpl': f"downloads/shazam_{chat_id}_{unique_id}.%(ext)s",
+            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}],
+            'quiet': True,
+            'nocheckcertificate': True
         }
         
         try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(text, download=True)
-                if 'entries' in info and len(info['entries']) > 0: video_info = info['entries'][0]
-                else: video_info = info
-                title = video_info.get('title', 'Musiqa')
-                filename = ydl.prepare_filename(video_info).replace('.webm', '.mp3').replace('.m4a', '.mp3')
-            
-            if os.path.exists(filename):
-                with open(filename, 'rb') as audio:
-                    bot.send_audio(chat_id, audio, caption=f"🎵 {title}\n\n🤖 @musiqa_bot")
-                increment_download(chat_id)
-                try: bot.delete_message(chat_id, msg.message_id)
-                except: pass
-                os.remove(filename)
+            with YoutubeDL(ydl_opts_audio) as ydl:
+                ydl.download([text])
+                
+            if os.path.exists(temp_audio):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                song_name = loop.run_until_complete(recognize_audio(temp_audio))
+                loop.close()
+                os.remove(temp_audio)
+                
+                if song_name:
+                    try: bot.edit_message_text(f"✨ Ohang: **{song_name}**\n📥 MP3 yuklanmoqda...", chat_id, msg.message_id)
+                    except: pass
+                    success = download_and_send_music(chat_id, user_id, song_name, message.message_id)
+                    if success:
+                        try: bot.delete_message(chat_id, msg.message_id)
+                        except: pass
+                else:
+                    try: bot.edit_message_text("❌ Link ichidagi musiqa aniqlanmadi.", chat_id, msg.message_id)
+                    except: pass
             else:
-                bot.edit_message_text("❌ Musiqa fayli topilmadi.", chat_id, msg.message_id)
+                if not video_success:
+                    try: bot.edit_message_text("❌ Havolani yuklab bo'lmadi.", chat_id, msg.message_id)
+                    except: pass
         except:
-            try: bot.edit_message_text("❌ Kechirasiz, qo'shiq topilmadi.", chat_id, msg.message_id)
+            pass
+            
+        if os.path.exists(video_path):
+            try: os.remove(video_path)
             except: pass
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    chat_id = call.message.chat.id
-    data = call.data
+    elif text.startswith("/music"):
+        query = text.replace("/music", "").strip()
+        if not query:
+            bot.reply_to(message, "⚠️ Qo'shiq nomini yozing.")
+            return
+        try: msg = bot.reply_to(message, "🔍 Qo'shiq qidirilmoqda...")
+        except: return
+        success = download_and_send_music(chat_id, user_id, query, message.message_id)
+        if success:
+            try: bot.delete_message(chat_id, msg.message_id)
+            except: pass
+
+    elif chat_type == 'private' and not text.startswith("/"):
+        try: msg = bot.reply_to(message, "🔍 Qo'shiq qidirilmoqda...")
+        except: return
+        success = download_and_send_music(chat_id, user_id, text, message.message_id)
+        if success:
+            try: bot.delete_message(chat_id, msg.message_id)
+            except: pass
+
+@bot.message_handler(content_types=['voice', 'video', 'video_note', 'document'])
+def handle_all_media(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
     
-    if data.startswith('mp3_'):
-        url = data.replace('mp3_', '')
-        try: msg = bot.send_message(chat_id, "📥 MP3 (Audio) tayyorlanmoqda, kuting...")
-        except: return
-        ydl_opts = {
-            'format': 'bestaudio/best', 
-            'outtmpl': f"downloads/%(title)s_{chat_id}.%(ext)s",
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 
-            'quiet': True, 'ignoreerrors': True
-        }
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if 'entries' in info: video_info = info['entries'][0]
-                else: video_info = info
-                filename = ydl.prepare_filename(video_info).rsplit('.', 1)[0] + ".mp3"
-                
-            with open(filename, 'rb') as audio: 
-                bot.send_audio(chat_id, audio, caption="🎵 @musiqa_bot")
-            increment_download(chat_id)
-            try: bot.delete_message(chat_id, msg.message_id)
-            except: pass
-            if os.path.exists(filename): os.remove(filename)
-        except: 
-            try: bot.send_message(chat_id, "❌ Musiqasini ajratib bo'lmadi.")
-            except: pass
-
-    elif data.startswith('mp4_'):
-        url = data.replace('mp4_', '')
-        try: msg = bot.send_message(chat_id, "📥 MP4 (Video) yuklanmoqda, kuting...")
-        except: return
-        ydl_opts = {
-            'format': 'best[ext=mp4]/best', 'outtmpl': f"downloads/%(title)s_{chat_id}.%(ext)s", 
-            'quiet': True, 'ignoreerrors': True
-        }
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if 'entries' in info: video_info = info['entries'][0]
-                else: video_info = info
-                filename = ydl.prepare_filename(video_info)
-                if not os.path.exists(filename): filename = filename.rsplit('.', 1)[0] + ".mp4"
-                
-            with open(filename, 'rb') as video: 
-                bot.send_video(chat_id, video, caption="🎬 @musiqa_bot")
-            increment_download(chat_id)
-            try: bot.delete_message(chat_id, msg.message_id)
-            except: pass
-            if os.path.exists(filename): os.remove(filename)
-        except: 
-            try: bot.send_message(chat_id, "❌ Videoni yuklashda xatolik yuz berdi.")
-            except: pass
+    try:
+        if message.content_type == 'voice':
+            file_id = message.voice.file_id
+        elif message.content_type == 'video':
+            file_id = message.video.file_id
+        elif message.content_type == 'video_note':
+            file_id = message.video_note.file_id
+        elif message.content_type == 'document' and message.document.mime_type and 'video' in message.document.mime_type:
+            file_id = message.document.file_id
+        else:
+            return
+            
+        msg = bot.reply_to(message, "🎧 Media tahlil qilinmoqda...")
+        unique_id = f"{user_id}_{random.randint(100, 999)}"
+        local_file_path = f"downloads/media_{chat_id}_{unique_id}.mp3"
+        
+        file_info = bot.get_file(file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        with open(local_file_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+            
+        if os.path.exists(local_file_path):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            song_name = loop.run_until_complete(recognize_audio(local_file_path))
+            loop.close()
+            os.remove(local_file_path)
+            
+            if song_name:
+                try: bot.edit_message_text(f"✨ Ohang: **{song_name}**\n📥 MP3 yuklanmoqda...", chat_id, msg.message_id)
+                except: pass
+                success = download_and_send_music(chat_id, user_id, song_name, message.message_id)
+                if success:
+                    try: bot.delete_message(chat_id, msg.message_id)
+                    except: pass
+            else:
+                try: bot.edit_message_text("❌ Musiqa topilmadi.", chat_id, msg.message_id)
+                except: pass
+    except:
+        try: bot.edit_message_text("❌ Mediani tahlil qilib bo'lmadi.", chat_id, msg.message_id)
+        except: pass
 
 if __name__ == '__main__':
-    try:
-        bot.infinity_polling(timeout=90, long_polling_timeout=30)
-    except:
-        pass
+    bot.infinity_polling()
