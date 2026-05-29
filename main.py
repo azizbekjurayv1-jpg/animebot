@@ -9,7 +9,7 @@ from urllib3.util import Retry
 from flask import Flask
 from threading import Thread
 
-# 1. RENDER UCHUN VEB-SERVER QISMI (PORT XATOSINI OLISH UCHUN)
+# 1. RENDER VEB-SERVER QISMI
 app = Flask('')
 
 @app.route('/')
@@ -20,7 +20,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# Veb-serverni orqa fonda ishga tushirish
+# Veb-serverni orqa fonda yurgizish
 Thread(target=run_flask).start()
 
 # 2. TELEGRAM BOT QISMI
@@ -133,8 +133,7 @@ def handle_all_messages(message):
                 bot.edit_message_text("❌ Musiqa fayli topilmadi.", chat_id, msg.message_id)
         except:
             try: bot.edit_message_text("❌ Kechirasiz, qo'shiq topilmadi.", chat_id, msg.message_id)
-        
-        except: pass
+            except: pass
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
