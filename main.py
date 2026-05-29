@@ -3,6 +3,7 @@ import re
 import random
 import asyncio
 import telebot
+from telebot import types
 from yt_dlp import YoutubeDL
 from shazamio import Shazam
 
@@ -12,12 +13,15 @@ BOT_TOKEN = "8300065405:AAE6MOr5EhoPmGujdvx11yPPNZ2lHR0gdRk"
 try:
     bot = telebot.TeleBot(BOT_TOKEN)
     bot_info = bot.get_me()
-    print(f"🔥 Stabil bot ishga tushdi: @{bot_info.username}")
+    print(f"🔥 Mukammal universal bot ishga tushdi: @{bot_info.username}")
 except Exception as e:
     print(f"❌ Xatolik: {e}")
 
 os.makedirs("downloads", exist_ok=True)
 URL_REGEXP = r'(https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*))'
+
+# Qidiruv natijalarini vaqtincha saqlash xotirasi (Tugmalar ishlashi uchun)
+user_search_cache = {}
 
 async def recognize_audio(file_path):
     shazam = Shazam()
@@ -54,7 +58,7 @@ def download_and_send_music(chat_id, user_id, query, reply_to_id):
                 
         if os.path.exists(full_audio_path):
             with open(full_audio_path, 'rb') as f:
-                bot.send_audio(chat_id, f, reply_to_message_id=reply_to_id, caption=f"🎵 {title}\n\n🤖 To'liq versiyasi!")
+                bot.send_audio(chat_id, f, reply_to_message_id=reply_to_id, caption=f"🎵 {title}\n\n🤖 Srazu yuklab berildi!")
             os.remove(full_audio_path)
             return True
     except Exception as e:
@@ -64,10 +68,42 @@ def download_and_send_music(chat_id, user_id, query, reply_to_id):
         os.remove(full_audio_path)
     return False
 
+# ⚡️ O'SHA "XATO MA'LUMOT" CHIQISHINI DAVOLAYDIGAN ASOSIY QISM
+@bot.callback_query_handler(func=lambda call: True)
+def handle_inline_buttons(call):
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
+    data = call.data
+    
+    # Telegram'ga so'rov yetib kelganini srazu bildiramiz (Ekrandagi yuklanish aylanasi to'xtaydi)
+    try:
+        bot.answer_callback_query(call.id, text="📥 Qo'shiq yuklanmoqda...")
+    except:
+        pass
+
+    if data.startswith("music_"):
+        try:
+            index = int(data.split("_")[1])
+            # Keshdan foydalanuvchining aynan o'sha qidiruv ro'yxatini olamiz
+            if user_id in user_search_cache and index < len(user_search_cache[user_id]):
+                chosen_track = user_search_cache[user_id][index]
+                
+                msg = bot.send_message(chat_id, f"📥 **{chosen_track}** yuklanmoqda...")
+                success = download_and_send_music(chat_id, user_id, chosen_track, call.message.message_id)
+                
+                if success:
+                    bot.delete_message(chat_id, msg.message_id)
+                else:
+                    bot.edit_message_text("❌ Yuklashda xatolik yuz berdi.", chat_id, msg.message_id)
+            else:
+                bot.send_message(chat_id, "⚠️ Qidiruv muddati eskirgan, iltimos qaytadan yozing.")
+        except Exception as e:
+            print(f"Callback xatosi: {e}")
+
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     try:
-        bot.reply_to(message, "🎤 Salom! Men hamma joyga moslashgan musiqiy botman!\n\n"
+        bot.reply_to(message, "🎤 Salom! Men sizni ortiqcha tugmalar bilan charchatmaydigan botman!\n\n"
                               "💬 **Lichkada:** Shunchaki qo'shiq nomini yozing.\n"
                               "👥 **Guruhda:** Qo'shiq qidirish uchun `/music qo'shiq_nomi` deb yozing.\n"
                               "🔗 **Link yuborilsa:** Ham videoni, ham MP3 versiyasini birga beraman!")
@@ -80,6 +116,7 @@ def handle_text_messages(message):
     user_id = message.from_user.id
     chat_type = message.chat.type
     
+    # 1. Havolalar bilan ishlash qismi
     if re.search(URL_REGEXP, text):
         try: msg = bot.reply_to(message, "📥 Havola qabul qilindi, video yuklanmoqda...")
         except: return
@@ -92,7 +129,7 @@ def handle_text_messages(message):
             'quiet': True,
             'nocheckcertificate': True,
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36',
             }
         }
         
@@ -151,25 +188,44 @@ def handle_text_messages(message):
             try: os.remove(video_path)
             except: pass
 
-    elif text.startswith("/music"):
-        query = text.replace("/music", "").strip()
+    # 2. Matn orqali ro'yxat qidirish qismi (Guruhda /music, lichkada esa shunchaki matn)
+    elif text.startswith("/music") or (chat_type == 'private' and not text.startswith("/")):
+        query = text.replace("/music", "").strip() if text.startswith("/music") else text
         if not query:
             bot.reply_to(message, "⚠️ Qo'shiq nomini yozing.")
             return
+            
         try: msg = bot.reply_to(message, "🔍 Qo'shiq qidirilmoqda...")
         except: return
-        success = download_and_send_music(chat_id, user_id, query, message.message_id)
-        if success:
-            try: bot.delete_message(chat_id, msg.message_id)
-            except: pass
-
-    elif chat_type == 'private' and not text.startswith("/"):
-        try: msg = bot.reply_to(message, "🔍 Qo'shiq qidirilmoqda...")
-        except: return
-        success = download_and_send_music(chat_id, user_id, text, message.message_id)
-        if success:
-            try: bot.delete_message(chat_id, msg.message_id)
-            except: pass
+        
+        # 10 ta eng yaxshi natijani qidirish
+        ydl_opts = {'format': 'bestaudio/best', 'default_search': 'ytsearch10', 'quiet': True}
+        try:
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(query, download=False)
+                if 'entries' in info and len(info['entries']) > 0:
+                    tracks = []
+                    text_res = "🎵 **Topilgan to'liq versiyalar ro'yxati:**\n\n"
+                    keyboard = types.InlineKeyboardMarkup(row_width=5)
+                    buttons = []
+                    
+                    for i, entry in enumerate(info['entries'][:10]):
+                        title = entry.get('title', 'Musiqa')
+                        tracks.append(title)
+                        text_res += f"{i+1}. {title}\n"
+                        buttons.append(types.InlineKeyboardButton(text=str(i+1), callback_query_data=f"music_{i}"))
+                    
+                    user_search_cache[user_id] = tracks
+                    keyboard.add(*buttons)
+                    
+                    bot.edit_message_text(text_res, chat_id, msg.message_id, reply_markup=keyboard)
+                else:
+                    bot.edit_message_text("❌ Hech narsa topilmadi.", chat_id, msg.message_id)
+        except:
+            # Agar qidiruv tizimida xato bo'lsa, to'g'ridan-to'g'ri birinchi natijani yuklab yuboraveradi
+            success = download_and_send_music(chat_id, user_id, query, message.message_id)
+            if success: bot.delete_message(chat_id, msg.message_id)
+            else: bot.edit_message_text("❌ Topilmadi.", chat_id, msg.message_id)
 
 @bot.message_handler(content_types=['voice', 'video', 'video_note', 'document'])
 def handle_all_media(message):
