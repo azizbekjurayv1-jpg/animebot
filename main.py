@@ -2,23 +2,29 @@ import telebot
 import requests
 import os
 import json
-from flask import Flask
-from threading import Thread
+from flask import Flask, request
 
 # Telegram bot tokeningiz 🔑
 TOKEN = "8300065405:AAEM6bBSA8tqBONqDGfMtUiifursaOnOKBA"
 bot = telebot.TeleBot(TOKEN)
 
+# Render loyihangiz havolasi 🔗
+WEBHOOK_URL = "https://animebot-ecwi.onrender.com"
+
 DB_FILE = "users_db.json"
 app = Flask('')
+
+# 🌐 Webhook orqali xabarlarni qabul qilish nuqtasi
+@app.route('/' + TOKEN, methods=['POST'])
+def getMessage():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
 
 @app.route('/')
 def home():
     return "Bot muvaffaqiyatli ishlayapti!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
 
 def load_db():
     if os.path.exists(DB_FILE):
@@ -92,9 +98,10 @@ def handle_message(message):
         bot.edit_message_text("❌ Tizimda xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring.", message.chat.id, status_msg.message_id)
 
 if __name__ == "__main__":
-    t = Thread(target=run_flask)
-    t.start()
-    print("Bot Render Web Service rejimida ishlamoqda...")
+    # Eski ulanishlarni o'chirish va yangi webhook o'rnatish ⚙️
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL + '/' + TOKEN)
+    print("Webhook muvaffaqiyatli o'rnatildi!")
     
-    # 🚀 Conflict xatoligini oldini olish uchun skip_pending qo'shildi
-    bot.infinity_polling(skip_pending=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
