@@ -6,7 +6,7 @@ from flask import Flask
 from threading import Thread
 
 # Telegram bot tokeningiz 🔑
-TOKEN = "8300065405:AAF0hvjLSsnNrs8HhboGg8szFUDBLg03cko"
+TOKEN = "8300065405:AAEM6bBSA8tqBONqDGfMtUiifursaOnOKBA"
 bot = telebot.TeleBot(TOKEN)
 
 DB_FILE = "users_db.json"
