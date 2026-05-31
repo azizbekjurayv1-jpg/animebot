@@ -68,8 +68,6 @@ def handle_message(message):
         response = requests.get(api_url).json()
         
         if response.get("status") == 200 and "result" in response:
-            # Ba'zi API'larda audio link to'g'ridan-to'g'ri download ichida bo'ladi, ba'zida download ichidagi audio'da bo'ladi.
-            # Agar xato bersa, buni ['download']['audio'] deb o'zgartirish kerak bo'lishi mumkin.
             audio_url = response["result"].get("download")
             title = response["result"].get("title", "music")
             
