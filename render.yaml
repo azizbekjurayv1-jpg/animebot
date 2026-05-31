@@ -1,1 +1,13 @@
-
+services:
+  - type: worker
+    name: music-telegram-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 main.py
+    buildFilter:
+      paths:
+        - .buildpack
+    # FFmpeg o'rnatish uchun Render muhitiga buildpack qo'shamiz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.5
